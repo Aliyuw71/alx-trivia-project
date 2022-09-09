@@ -9,11 +9,11 @@ from models import setup_db, Question, Category
 QUESTIONS_PER_PAGE = 10
 
 
-def add_pagination(req, arr):
-    cur_page = req.args.get('page', 1, type=int)
+def add_pagination(request, selection):
+    cur_page = request.args.get('page', 1, type=int)
     start = (cur_page - 1) * QUESTIONS_PER_PAGE
     end = start + QUESTIONS_PER_PAGE
-    questions = [question.format() for question in arr]
+    questions = [question.format() for question in selection]
     cur_questions = questions[start:end]
     return cur_questions
 
@@ -23,7 +23,10 @@ def create_app(test_config=None):
     app = Flask(__name__)
     setup_db(app)
 
-    cors = CORS(app, resources={r"/api/*": {"origins": "*"}})
+    '''
+    Set up CORS. Allow '*' for origins. Delete the sample route after completing the TODOs
+    '''
+    cors = CORS(app)
 
     @app.after_request
     def after_request(areq):
@@ -33,31 +36,27 @@ def create_app(test_config=None):
 
     @app.route("/categories")
     def categories():
-        all_categories = Category.query.all()
-        catdict = {}
-        for category in all_categories:
-            catdict[category.id] = category.type
-        result = {
-            "success": True,
-            "categories": catdict
-        }
-        return jsonify(result)
+        selection = Category.query.order_by(Category.type).all()
+
+        if len(categories) == 0:
+            abort(404)
+        return jsonify({
+             'success': True,
+             'categories': {category.id: category.type for category in selection}
+        })
 
     @app.route('/questions')
     def questions():
-        questions = Question.query.order_by(Question.id).all()
-        cur_questions = add_pagination(request, questions)
-        categories = Category.query.all()
-        catdict = {}
-        for category in categories:
-            catdict[category.id] = category.type
+        selection = Question.query.order_by(Question.id).all()
+        cur_questions = add_pagination(request, selection)
+        categories = Category.query.order_by(Category.type).all()
 
         if len(cur_questions) == 0:
-            abort(404)
+           abort(404)
 
         return jsonify({
             'success': True,
-            'categories': catdict,
+            'categories':  {category.id: category.type for category in categories},
             'questions': cur_questions,
             'total_questions': Question.query.count(),
             'current_category': None,
@@ -65,20 +64,21 @@ def create_app(test_config=None):
 
     @app.route('/questions/<int:question_id>', methods=['DELETE'])
     def delete_questions(question_id):
-        question = Question.query.filter_by(id=question_id).one_or_none()
-        if question is None:
-            abort(404)
+       
         try:
+            question = Question.query.filter(Question.id == question_id).one_or_none()
+            if question is None:
+                abort(404)
             question.delete()
-            questions = Question.query.order_by(Question.id).all()
-            cur_questions = add_pagination(request, questions)
+            selection = Question.query.order_by(Question.id).all()
+            cur_questions = add_pagination(request, selection)
 
             return jsonify({
-                'success': True,
-                'deleted': question_id,
-                'questions': cur_questions,
-                'total_questions': Question.query.count()
-            })
+                    'success': True,
+                    'deleted': question_id,
+                    'questions': cur_questions,
+                    'total_questions':len(Question.query.all())
+                })
 
         except:
             abort(422)
@@ -86,91 +86,62 @@ def create_app(test_config=None):
     @app.route("/questions", methods=['POST'])
     def post_questions():
         body = request.get_json()
-        if body.get('searchTerm'):
-            keyword = body.get('searchTerm')
-            query = Question.query.filter(
-                Question.question.ilike(f'%{keyword}%')).all()
-            if len(query) == 0:
-                abort(404)
-            questions = add_pagination(request, query)
-            return jsonify({
-                'success': True,
-                'questions': questions,
-                'total_questions': len(query)
-            })
-        elif body.get('question') and body.get('answer'):
-            try:
-                question = body.get('question', None)
-                answer = body.get('answer', None)
-                category = body.get('category', None)
-                difficulty = body.get('difficulty', None)
+       
+        question = body.get('question', None)
+        answer = body.get('answer', None)
+        category = body.get('category', None)
+        difficulty = body.get('difficulty', None)
 
+        try:   
+            
+                all_questions = Question.query.all()
+
+                selection = Question.query.order_by(Question.id).all()
+
+                current_questions = add_pagination(request, selection)
                 question = Question(question=question, answer=answer, category=category, difficulty=difficulty)
                 question.insert()
 
                 return jsonify({
-                    'success': True,
-                    'created': question.id,
-                    'total_questions': Question.query.count()
-                })
-            except:
+                                    'success': True,
+                                    'created': question.id,
+                                    'question': current_questions,
+                                    'total_quetions': len(all_questions)
+                                 })
+              
+        except:
                 abort(422)
-        else:
-            abort(422)
 
-    @app.route("/searchQuestions", methods=['POST'])
+    @app.route("/questions/search", methods=['POST'])
     def searchQuestions():
-        if request.data:
-            cur_page = 1
-            if request.args.get('page'):
-                cur_page = int(request.args.get('page'))
-            data = json.loads(request.data.decode('utf-8'))
-            if 'searchTerm' in data:
-                query = Question.query.filter(
-                    Question.question.ilike(
-                        '%' +
-                        data['searchTerm'] +
-                        '%')).paginate(
-                    cur_page,
-                    QUESTIONS_PER_PAGE,
-                    False)
-                questions = list(map(Question.format, query.items))
-                if len(questions) > 0:
-                    print(questions)
-                    return jsonify({
-                        "success": True,
-                        "questions": questions,
-                        "total_questions": query.total,
-                        "current_category": None,
-                    })
-            abort(404)
-        abort(422)
+        body = request.get_json()
 
-    @app.route("/categories/<int:category_id>/questions")
-    def get_question_by_category(category_id):
-        cur_category = Category.query.filter_by(id=category_id).one_or_none()
-        if cur_category is None:
+        search = body.get('searchNew',None)
+
+        if search:
+            results =  Question.query.filter(
+                        Question.question.ilike(f'%{search}%')).all()
+
+            return jsonify({
+                'success': True,
+                'questions': [question.format() for question in results],
+                'total_questions': len(results),
+                'current_category': None})
+        else:
             abort(404)
-        cur_page = 1
-        if request.args.get('page'):
-            cur_page = int(request.args.get('page'))
-        categories = Category.query.all()
-        catdict = {}
-        for category in categories:
-            catdict[category.id] = category.type
-        query = Question.query.filter_by(
-            category=category_id).paginate(
-            cur_page, QUESTIONS_PER_PAGE, False)
-        questions = list(map(Question.format, query.items))
-        if len(questions) > 0:
-            return ({
-                "success": True,
-                "questions": questions,
-                "total_questions": query.total,
-                "categories": catdict,
-                "current_category": Category.format(cur_category),
-            })
-        abort(404)
+
+    @app.route('/categories/<int:category_id>/questions', methods=['GET'])
+    def get_question_by_category(category_id):
+                try:
+                    questions = Question.query.filter(Question.category == str(category_id)).all()
+                    return jsonify({
+                                'success': True,
+                                'questions': [question.format() for question in questions],
+                                'total_questions': len(questions),
+                                'current_category': category_id
+                                })
+                except:
+                    abort(404)
 
     @app.route("/quizzes", methods=['POST'])
     def quizzes():
