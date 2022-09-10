@@ -145,41 +145,31 @@ def create_app(test_config=None):
 
     @app.route("/quizzes", methods=['POST'])
     def quizzes():
-        if request.data:
-            jsonData = json.loads(request.data.decode('utf-8'))
-            if (('quiz_category' in jsonData
-                 and 'id' in jsonData['quiz_category'])
-                    and 'previous_questions' in jsonData):
-                if jsonData['quiz_category']['id'] > 0:
-                    query = Question.query.filter_by(
-                        category=jsonData['quiz_category']['id']
-                    ).filter(
-                        Question.id.notin_(jsonData["previous_questions"])
-                    ).all()
-                else:
-                    query = Question.query.filter(
-                        Question.id.notin_(jsonData["previous_questions"])
-                    ).all()
+
+        try:
+            body = request.get_json()
+            if not ('quiz_category' in body and 'previous_questions' in body):
+                    abort(422)
+
+            category = body.get('quiz_category')
+            previous_questions = body.get('previous_questions')
+
+            if category['type'] == 'click':
+                present_question = Question.query.filter(Question.id.notin_(previous_questions)).all()
+
             else:
-                query = Question.query.all()
-            question_count = len(query)
-            if question_count > 0:
-                result = {
-                    "success": True,
-                    "question": Question.format(
-                        query[random.randrange(
-                            0,
-                            question_count
-                        )]
-                    )
-                }
-            else:
-                result = {
-                    "success": True,
-                    "question": None
-                }
-            return jsonify(result)
-        abort(422)
+                    new_questions = Question.query.filter_by(category=category['id']).filter(Question.id.notin_(previous_questions)).all()
+
+            new_question = new_questions[random.randrange(0,
+                                                          len(new_questions))].format() if len(new_questions) > 0 else None
+
+            return jsonify({
+                    'success': True,
+                    'question': present_question
+                        })
+        except:
+                abort(422)
+
 
     @app.errorhandler(400)
     def bad_request(error):
